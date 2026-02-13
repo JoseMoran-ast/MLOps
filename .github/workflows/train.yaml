@@ -27,8 +27,31 @@ jobs:
         run: |
           python gen_artefacto.py
 
-      - name: Upload model artifact
+      # CI/CD: publicar artefacto en GitHub
+      - name: Upload model artifact (GitHub)
         uses: actions/upload-artifact@v4
         with:
           name: rf_forward_model
           path: rf_forward_model.joblib
+
+      # CD: credenciales AWS para poder usar S3 + SSM
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # CD: subir el modelo a S3
+      - name: Upload model to S3
+        run: |
+          aws s3 cp rf_forward_model.joblib s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib
+
+      # CD: ordenar a la EC2 que descargue el modelo desde S3 (sin SSH) usando SSM
+      - name: Download model to EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Download trained model artifact from S3" \
+            --parameters commands="mkdir -p /tmp/ml_artifacts && aws s3 cp s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib /tmp/ml_artifacts/rf_forward_model.joblib"

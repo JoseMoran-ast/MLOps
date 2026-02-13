@@ -47,31 +47,34 @@ jobs:
         run: |
           aws s3 cp rf_forward_model.joblib s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib
 
-      - name: Deploy API to EC2 (SSM) + restart service (private repo)
+      - name: Deploy API to EC2 via SSM (clone private repo to /opt/mlops + systemd)
         run: |
           aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy FastAPI app from private repo and restart with latest model" \
+            --comment "Deploy FastAPI app from private repo to /opt/mlops and restart service" \
             --parameters '{
               "commands": [
                 "set -e",
                 "GH_PAT=${{ secrets.PAT_GITHUB }}",
-                "if id ubuntu >/dev/null 2>&1 && [ -d /home/ubuntu ]; then USER_NAME=ubuntu; USER_HOME=/home/ubuntu; else USER_NAME=ec2-user; USER_HOME=/home/ec2-user; fi",
+
                 "if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y git python3-venv python3-pip; else sudo yum update -y || true; sudo yum install -y git python3-pip || true; fi",
-                "cd $USER_HOME",
-                "git config --global url.\"https://${GH_PAT}@github.com/\".insteadOf \"https://github.com/\"",
-                "if [ ! -d MLOps/.git ]; then git clone https://github.com/JoseMoran-ast/MLOps.git; else cd MLOps && git pull && cd $USER_HOME; fi",
-                "cd $USER_HOME/MLOps",
-                "python3 -m venv venv",
-                ". venv/bin/activate",
-                "pip install --upgrade pip",
-                "pip install -r requirements.txt",
-                "pip install uvicorn",
-                "sudo bash -lc \"cat > /etc/systemd/system/mlops-api.service <<'EOF'\n[Unit]\nDescription=MLOps FastAPI Inference API\nAfter=network.target\n\n[Service]\nType=simple\nUser=${USER_NAME}\nWorkingDirectory=${USER_HOME}/MLOps\nEnvironment=MODEL_PATH=/tmp/ml_artifacts/rf_forward_model.joblib\nExecStart=${USER_HOME}/MLOps/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\nEOF\"",
+
+                "sudo mkdir -p /opt/mlops",
+
+                "sudo bash -lc \"cd /opt && if [ ! -d mlops/.git ]; then git clone https://${GH_PAT}@github.com/JoseMoran-ast/MLOps.git mlops; else cd mlops && git pull; fi\"",
+
+                "sudo bash -lc \"cd /opt/mlops && python3 -m venv venv\"",
+                "sudo bash -lc \"cd /opt/mlops && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && pip install uvicorn\"",
+
+                "sudo bash -lc \"cat > /etc/systemd/system/mlops-api.service <<'EOF'\n[Unit]\nDescription=MLOps FastAPI Inference API\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=/opt/mlops\nEnvironment=MODEL_PATH=/tmp/ml_artifacts/rf_forward_model.joblib\nExecStart=/opt/mlops/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\nEOF\"",
+
                 "sudo systemctl daemon-reload",
                 "sudo systemctl enable mlops-api.service",
                 "sudo systemctl restart mlops-api.service",
-                "sudo systemctl status mlops-api.service --no-pager"
+                "sudo systemctl status mlops-api.service --no-pager",
+
+                "sudo ss -ltnp | grep 8000 || true"
               ]
             }'
+

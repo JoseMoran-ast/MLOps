@@ -1,12 +1,13 @@
 import joblib
 import pandas as pd
+import os 
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-ARTIFACT_PATH = "rf_forward_model.joblib"
+ARTIFACT_PATH = os.getenv("MODEL_PATH", "rf_forward_model.joblib")
 
 # Cargar artefacto al arrancar
 artifact = joblib.load(ARTIFACT_PATH)

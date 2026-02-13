@@ -55,3 +55,80 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Download trained model artifact from S3" \
             --parameters commands="mkdir -p /tmp/ml_artifacts && aws s3 cp s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib /tmp/ml_artifacts/rf_forward_model.joblib"
+
+      # CD: desplegar el código FastAPI en EC2 desde repo privado + instalar deps + arrancar como servicio
+      - name: Deploy API to EC2 (SSM) + restart service (private repo)
+        run: |
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy FastAPI app from private repo and restart with latest model" \
+            --parameters commands='
+              set -e
+              GH_PAT="${{ secrets.PAT_GITHUB }}"
+
+              # Detect OS/user/home safely (Ubuntu vs Amazon Linux)
+              if id ubuntu >/dev/null 2>&1 && [ -d "/home/ubuntu" ]; then
+                USER_NAME="ubuntu"
+                USER_HOME="/home/ubuntu"
+              else
+                USER_NAME="ec2-user"
+                USER_HOME="/home/ec2-user"
+              fi
+
+              # Install prerequisites
+              if command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get update -y
+                sudo apt-get install -y git python3-venv python3-pip
+              else
+                sudo yum update -y || true
+                sudo yum install -y git python3-pip || true
+              fi
+
+              cd "$USER_HOME"
+
+              # Configure git to use token ONLY for github.com HTTPS URLs
+              git config --global url."https://'"$GH_PAT"'@github.com/".insteadOf "https://github.com/"
+
+              # Clone or update repo
+              if [ ! -d "MLOps/.git" ]; then
+                git clone https://github.com/JoseMoran-ast/MLOps.git
+              else
+                cd MLOps
+                git pull
+                cd "$USER_HOME"
+              fi
+
+              cd MLOps
+
+              # Create venv + install deps
+              python3 -m venv venv
+              . venv/bin/activate
+              pip install --upgrade pip
+              pip install -r requirements.txt
+              pip install uvicorn
+
+              # Create/Update systemd service
+              sudo tee /etc/systemd/system/mlops-api.service > /dev/null <<EOF
+              [Unit]
+              Description=MLOps FastAPI Inference API
+              After=network.target
+
+              [Service]
+              Type=simple
+              User=$USER_NAME
+              WorkingDirectory=$USER_HOME/MLOps
+              Environment=MODEL_PATH=/tmp/ml_artifacts/rf_forward_model.joblib
+              ExecStart=$USER_HOME/MLOps/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000
+              Restart=always
+              RestartSec=3
+
+              [Install]
+              WantedBy=multi-user.target
+              EOF
+
+              sudo systemctl daemon-reload
+              sudo systemctl enable mlops-api.service
+              sudo systemctl restart mlops-api.service
+              sudo systemctl status mlops-api.service --no-pager
+            '

@@ -7,7 +7,15 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-ARTIFACT_PATH = os.getenv("MODEL_PATH", "rf_forward_model.joblib")
+ARTIFACT_PATH = os.getenv(
+    "MODEL_PATH",
+    "/opt/mlops/artifacts/rf_forward_model.joblib"
+)
+
+if not os.path.exists(ARTIFACT_PATH):
+    raise FileNotFoundError(
+        f"Model file not found at {ARTIFACT_PATH}"
+    )
 
 # Cargar artefacto al arrancar
 artifact = joblib.load(ARTIFACT_PATH)

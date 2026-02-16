@@ -43,12 +43,12 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       # Desplegar MLflow 
-      - name: Deploy MLflow to EC2 via SSM (with Docker Compose v2)
+      - name: Deploy MLflow to EC2 via SSM (SQLite + S3)
         run: |
           aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy MLflow (Postgres + MLflow) with Docker Compose v2" \
+            --comment "Deploy MLflow (Registry enabled) SQLite + S3" \
             --parameters '{
               "commands": [
                 "set -e",
@@ -64,21 +64,19 @@ jobs:
                 "if ! docker compose version >/dev/null 2>&1; then sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose; sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose; fi",
                 "docker compose version",
 
-                "sudo mkdir -p /opt/mlops",
                 "sudo bash -lc \"cd /opt && if [ ! -d mlops/.git ]; then git clone https://${GH_PAT}@github.com/JoseMoran-ast/MLOps.git mlops; else cd mlops && git pull; fi\"",
 
                 "sudo mkdir -p /opt/mlflow",
                 "sudo test -f /opt/mlops/infra/mlflow/docker-compose.yaml",
                 "sudo cp /opt/mlops/infra/mlflow/docker-compose.yaml /opt/mlflow/docker-compose.yml",
-                "sudo test -f /opt/mlflow/docker-compose.yml",
 
                 "sudo bash -lc \"sudo tee /opt/mlflow/.env >/dev/null <<EOF\nAWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESSS_KEY_ID }}\nAWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}\nAWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}\nS3_BUCKET=${{ secrets.S3_BUCKET }}\nEOF\"",
 
                 "sudo bash -lc \"docker compose -f /opt/mlflow/docker-compose.yml up -d\"",
-                "sudo bash -lc \"docker compose -f /opt/mlflow/docker-compose.yml ps\"",
-                "sudo bash -lc \"curl -sS -I --max-time 5 http://127.0.0.1:5000/ || true\""
+                "sudo bash -lc \"docker compose -f /opt/mlflow/docker-compose.yml ps\""
               ]
             }'
+
 
 
 

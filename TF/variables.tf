@@ -52,6 +52,12 @@ variable "api_cidr_blocks" {
   default     = ["0.0.0.0/0"]
 }
 
+variable "mlflow_cidr_blocks" {
+  description = "CIDR blocks allowed to access MLflow (port 5000)"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
 variable "instance_profile_name" {
   type        = string
   description = "Nombre del IAM Instance Profile (role) adjunto a la EC2"

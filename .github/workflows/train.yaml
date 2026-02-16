@@ -42,6 +42,41 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # Desplegar MLflow 
+      - name: Deploy MLflow (Postgres + MLflow) to EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy MLflow (registry enabled) with Docker Compose" \
+            --parameters '{
+              "commands": [
+                "set -e",
+                "GH_PAT=${{ secrets.PAT_GITHUB }}",
+
+                "if command -v apt-get >/dev/null 2>&1; then \
+                   sudo apt-get update -y && sudo apt-get install -y docker.io docker-compose-plugin git; \
+                 else \
+                   sudo yum update -y || true; sudo yum install -y docker git || true; \
+                 fi",
+
+                "sudo systemctl enable docker || true",
+                "sudo systemctl start docker || true",
+
+                "sudo mkdir -p /opt/mlops",
+                "sudo bash -lc \"cd /opt && if [ ! -d mlops/.git ]; then git clone https://${GH_PAT}@github.com/JoseMoran-ast/MLOps.git mlops; else cd mlops && git pull; fi\"",
+
+                "sudo mkdir -p /opt/mlflow",
+                "sudo cp /opt/mlops/infra/mlflow/docker-compose.yml /opt/mlflow/docker-compose.yml",
+
+                "sudo bash -lc \"cat > /opt/mlflow/.env <<'EOF'\nAWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESSS_KEY_ID }}\nAWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}\nAWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}\nS3_BUCKET=${{ secrets.S3_BUCKET }}\nEOF\"",
+
+                "sudo bash -lc \"cd /opt/mlflow && docker compose up -d\"",
+                "sudo bash -lc \"cd /opt/mlflow && docker compose ps\"",
+                "sudo bash -lc \"docker logs --tail=120 mlflow || true\""
+              ]
+            }'
+
       # CD: subir el modelo a S3
       - name: Upload model to S3
         run: |

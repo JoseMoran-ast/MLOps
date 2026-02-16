@@ -45,6 +45,14 @@ resource "aws_security_group" "mlops_sg" {
     cidr_blocks = var.api_cidr_blocks
   }
 
+  ingress {
+    description = "MLFlow"
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = var.mlflow_cidr_blocks
+  }
+
   egress {
     from_port   = 0
     to_port     = 0

@@ -52,7 +52,6 @@ jobs:
             --parameters '{
               "commands": [
                 "set -e",
-
                 "GH_PAT=\"${{ secrets.PAT_GITHUB }}\"",
 
                 "if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y; fi",
@@ -70,18 +69,14 @@ jobs:
                 "sudo mkdir -p /opt/mlflow",
                 "sudo cp /opt/mlops/infra/mlflow/docker-compose.yml /opt/mlflow/docker-compose.yml",
 
-                "sudo bash -lc \"printf '%s\n' \
-                'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESSS_KEY_ID }}' \
-                'AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
-                'AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}' \
-                'S3_BUCKET=${{ secrets.S3_BUCKET }}' \
-                | sudo tee /opt/mlflow/.env >/dev/null\"",
+                "sudo bash -lc \"sudo tee /opt/mlflow/.env >/dev/null <<EOF\nAWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESSS_KEY_ID }}\nAWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}\nAWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}\nS3_BUCKET=${{ secrets.S3_BUCKET }}\nEOF\"",
 
                 "sudo bash -lc \"cd /opt/mlflow && docker compose up -d\"",
                 "sudo bash -lc \"cd /opt/mlflow && docker compose ps\"",
                 "sudo bash -lc \"docker logs --tail=120 mlflow || true\""
               ]
             }'
+
 
 
       # CD: subir el modelo a S3

@@ -47,6 +47,7 @@ jobs:
         run: |
           aws s3 cp rf_forward_model.joblib s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib
 
+      # CD: Clonar el repositorio de github en EC2 y desplegar la aplicación
       - name: Deploy API to EC2 via SSM (clone private repo to /opt/mlops + systemd)
         run: |
           aws ssm send-command \

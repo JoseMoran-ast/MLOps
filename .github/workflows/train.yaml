@@ -44,7 +44,7 @@ jobs:
         run: |
           aws s3 cp rf_forward_model.joblib s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib
 
-      - name: Deploy MLflow + API to EC2 via SSM (AL2023-compatible, wait + logs)
+      - name: Deploy MLflow + API to EC2 via SSM (AL2023, wait + logs)
         id: deploy_all
         shell: bash
         run: |
@@ -52,9 +52,8 @@ jobs:
 
           IID="${{ secrets.EC2_INSTANCE_ID }}"
           REGION="${{ secrets.AWS_REGION }}"
-          BUCKET="${{ secrets.S3_BUCKET }}"
-          GH_PAT="${{ secrets.PAT_GITHUB }}"
 
+          # Enviamos el comando
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$IID" \
             --document-name "AWS-RunShellScript" \
@@ -62,90 +61,108 @@ jobs:
             --query "Command.CommandId" \
             --output text \
             --region "$REGION" \
-            --parameters "commands=[
-              \"sudo bash -lc 'set -euo pipefail; \
-                echo \\\"== OS info ==\\\"; cat /etc/os-release || true; \
-                echo \\\"== Install base packages ==\\\"; \
-                if command -v dnf >/dev/null 2>&1; then \
-                  sudo dnf update -y || true; \
-                  sudo dnf install -y git curl python3-pip python3-virtualenv || true; \
-                  (sudo dnf install -y docker || sudo dnf install -y moby-engine); \
-                elif command -v yum >/dev/null 2>&1; then \
-                  sudo yum update -y || true; \
-                  sudo yum install -y git curl python3-pip python3-virtualenv docker || true; \
-                elif command -v apt-get >/dev/null 2>&1; then \
-                  sudo apt-get update -y; \
-                  sudo apt-get install -y git curl python3-venv python3-pip docker.io docker-compose-plugin; \
-                fi; \
-                echo \\\"== Enable/start docker ==\\\"; \
-                sudo systemctl enable docker || true; \
-                sudo systemctl start docker || true; \
-                echo \\\"== Docker version ==\\\"; docker --version; \
-                echo \\\"== Ensure docker compose v2 ==\\\"; \
-                sudo mkdir -p /usr/local/lib/docker/cli-plugins; \
-                if ! docker compose version >/dev/null 2>&1; then \
-                  sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
-                    -o /usr/local/lib/docker/cli-plugins/docker-compose; \
-                  sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose; \
-                fi; \
-                docker compose version; \
-                echo \\\"== Clone repo fresh ==\\\"; \
-                sudo rm -rf /opt/mlops; \
-                cd /opt; \
-                sudo git clone https://${GH_PAT}@github.com/JoseMoran-ast/MLOps.git mlops; \
-                echo \\\"== Deploy MLflow ==\\\"; \
-                sudo mkdir -p /opt/mlflow; \
-                sudo test -f /opt/mlops/infra/mlflow/docker-compose.yaml; \
-                sudo cp /opt/mlops/infra/mlflow/docker-compose.yaml /opt/mlflow/docker-compose.yml; \
-                sudo tee /opt/mlflow/.env >/dev/null <<EOF \
-                AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESSS_KEY_ID }} \
-                AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-                AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }} \
-                S3_BUCKET=${{ secrets.S3_BUCKET }} \
-                EOF \
-                                ; \
-                                sudo docker compose -f /opt/mlflow/docker-compose.yml up -d; \
-                                sudo docker compose -f /opt/mlflow/docker-compose.yml ps; \
-                                echo \\\"== Check MLflow local ==\\\"; \
-                                curl -sS -I --max-time 10 http://127.0.0.1:5000/; \
-                                echo \\\"== Download model to stable artifacts dir ==\\\"; \
-                                sudo mkdir -p /opt/mlops_artifacts; \
-                                sudo aws s3 cp s3://${BUCKET}/rf_forward_model.joblib /opt/mlops_artifacts/rf_forward_model.joblib; \
-                                sudo ls -la /opt/mlops_artifacts; \
-                                echo \\\"== Deploy API (systemd) ==\\\"; \
-                                sudo bash -lc \\\"cd /opt/mlops && python3 -m venv venv\\\"; \
-                                sudo bash -lc \\\"cd /opt/mlops && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && pip install uvicorn\\\"; \
-                                sudo bash -lc \\\"cat > /etc/systemd/system/mlops-api.service <<\\\\'EOF2\\\\' \
-                [Unit] \
-                Description=MLOps FastAPI Inference API \
-                After=network.target \
-                \
-                [Service] \
-                Type=simple \
-                WorkingDirectory=/opt/mlops \
-                Environment=MODEL_PATH=/opt/mlops_artifacts/rf_forward_model.joblib \
-                ExecStart=/opt/mlops/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000 \
-                Restart=always \
-                RestartSec=3 \
-                \
-                [Install] \
-                WantedBy=multi-user.target \
-                EOF2 \
-                \\\"; \
-                                sudo systemctl daemon-reload; \
-                                sudo systemctl enable mlops-api.service; \
-                                sudo systemctl restart mlops-api.service; \
-                                sudo systemctl status mlops-api.service --no-pager; \
-                                echo \\\"== Ports ==\\\"; \
-                                sudo ss -ltnp | egrep \\\":5000|:8000\\\" || true; \
-                                echo \\\"== Docker ps ==\\\"; \
-                                sudo docker ps --format \\\"table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\\\"; \
-                                echo \\\"== DONE ==\\\"; \
-                              '\" \
-                            ]")
+            --parameters '{
+              "commands": [
+                "set -euo pipefail",
+                "cat > /tmp/deploy_mlops.sh <<\"SCRIPT\"",
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                "",
+                "echo \"== OS info ==\"",
+                "cat /etc/os-release || true",
+                "",
+                "echo \"== Install base packages + docker ==\"",
+                "if command -v dnf >/dev/null 2>&1; then",
+                "  sudo dnf update -y || true",
+                "  sudo dnf install -y git curl python3-pip python3-virtualenv || true",
+                "  sudo dnf install -y docker || sudo dnf install -y moby-engine",
+                "elif command -v yum >/dev/null 2>&1; then",
+                "  sudo yum update -y || true",
+                "  sudo yum install -y git curl python3-pip python3-virtualenv docker || true",
+                "elif command -v apt-get >/dev/null 2>&1; then",
+                "  sudo apt-get update -y",
+                "  sudo apt-get install -y git curl python3-venv python3-pip docker.io docker-compose-plugin",
+                "fi",
+                "",
+                "echo \"== Enable/start docker ==\"",
+                "sudo systemctl enable docker || true",
+                "sudo systemctl start docker || true",
+                "docker --version",
+                "",
+                "echo \"== Ensure docker compose v2 ==\"",
+                "sudo mkdir -p /usr/local/lib/docker/cli-plugins",
+                "if ! docker compose version >/dev/null 2>&1; then",
+                "  sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose",
+                "  sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose",
+                "fi",
+                "docker compose version",
+                "",
+                "echo \"== Clone repo fresh ==\"",
+                "GH_PAT=\"${{ secrets.PAT_GITHUB }}\"",
+                "sudo rm -rf /opt/mlops",
+                "cd /opt",
+                "sudo git clone \"https://${GH_PAT}@github.com/JoseMoran-ast/MLOps.git\" mlops",
+                "",
+                "echo \"== Deploy MLflow ==\"",
+                "sudo mkdir -p /opt/mlflow",
+                "sudo test -f /opt/mlops/infra/mlflow/docker-compose.yaml",
+                "sudo cp /opt/mlops/infra/mlflow/docker-compose.yaml /opt/mlflow/docker-compose.yml",
+                "",
+                "sudo tee /opt/mlflow/.env >/dev/null <<EOF",
+                "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESSS_KEY_ID }}",
+                "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}",
+                "AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}",
+                "S3_BUCKET=${{ secrets.S3_BUCKET }}",
+                "EOF",
+                "",
+                "sudo docker compose -f /opt/mlflow/docker-compose.yml up -d",
+                "sudo docker compose -f /opt/mlflow/docker-compose.yml ps",
+                "curl -sS -I --max-time 10 http://127.0.0.1:5000/ || true",
+                "",
+                "echo \"== Download model to stable artifacts dir ==\"",
+                "sudo mkdir -p /opt/mlops_artifacts",
+                "sudo aws s3 cp \"s3://${{ secrets.S3_BUCKET }}/rf_forward_model.joblib\" /opt/mlops_artifacts/rf_forward_model.joblib",
+                "sudo ls -la /opt/mlops_artifacts",
+                "",
+                "echo \"== Deploy API (systemd) ==\"",
+                "sudo bash -lc \"cd /opt/mlops && python3 -m venv venv\"",
+                "sudo bash -lc \"cd /opt/mlops && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && pip install uvicorn\"",
+                "",
+                "sudo bash -lc \"cat > /etc/systemd/system/mlops-api.service <<'EOF2'",
+                "[Unit]",
+                "Description=MLOps FastAPI Inference API",
+                "After=network.target",
+                "",
+                "[Service]",
+                "Type=simple",
+                "WorkingDirectory=/opt/mlops",
+                "Environment=MODEL_PATH=/opt/mlops_artifacts/rf_forward_model.joblib",
+                "ExecStart=/opt/mlops/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000",
+                "Restart=always",
+                "RestartSec=3",
+                "",
+                "[Install]",
+                "WantedBy=multi-user.target",
+                "EOF2\"",
+                "",
+                "sudo systemctl daemon-reload",
+                "sudo systemctl enable mlops-api.service",
+                "sudo systemctl restart mlops-api.service",
+                "sudo systemctl status mlops-api.service --no-pager || true",
+                "",
+                "echo \"== Ports ==\"",
+                "sudo ss -ltnp | egrep \":5000|:8000\" || true",
+                "echo \"== Docker ps ==\"",
+                "sudo docker ps --format \"table {{.Names}}\t{{.Status}}\t{{.Ports}}\" || true",
+                "echo \"== DONE ==\"",
+                "SCRIPT",
+                "chmod +x /tmp/deploy_mlops.sh",
+                "sudo bash /tmp/deploy_mlops.sh"
+              ]
+            }')
 
-                          echo "cmd_id=$CMD_ID" >> $GITHUB_OUTPUT
-                          echo "SSM CommandId: $CMD_ID"
+          echo "cmd_id=$CMD_ID" >> $GITHUB_OUTPUT
+          echo "SSM CommandId: $CMD_ID"
 
           STATUS="Pending"
           for i in {1..60}; do

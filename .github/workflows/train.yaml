@@ -43,25 +43,26 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       # Desplegar MLflow 
-      - name: Deploy MLflow (Postgres + MLflow) to EC2 via SSM
+      - name: Deploy MLflow to EC2 via SSM (with Docker Compose v2)
         run: |
           aws ssm send-command \
             --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy MLflow (registry enabled) with Docker Compose" \
+            --comment "Deploy MLflow (Postgres + MLflow) with Docker Compose v2" \
             --parameters '{
               "commands": [
                 "set -e",
                 "GH_PAT=\"${{ secrets.PAT_GITHUB }}\"",
 
-                "if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y; fi",
-                "if command -v apt-get >/dev/null 2>&1; then sudo apt-get install -y docker.io docker-compose-plugin git; fi",
-
-                "if command -v yum >/dev/null 2>&1; then sudo yum update -y || true; fi",
-                "if command -v yum >/dev/null 2>&1; then sudo yum install -y docker git || true; fi",
+                "if command -v yum >/dev/null 2>&1; then sudo yum update -y || true; sudo yum install -y docker git curl || true; fi",
+                "if command -v apt-get >/dev/null 2>&1; then sudo apt-get update -y; sudo apt-get install -y docker.io docker-compose-plugin git curl; fi",
 
                 "sudo systemctl enable docker || true",
                 "sudo systemctl start docker || true",
+
+                "sudo mkdir -p /usr/local/lib/docker/cli-plugins",
+                "if ! docker compose version >/dev/null 2>&1; then sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose; sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose; fi",
+                "docker compose version || true",
 
                 "sudo mkdir -p /opt/mlops",
                 "sudo bash -lc \"cd /opt && if [ ! -d mlops/.git ]; then git clone https://${GH_PAT}@github.com/JoseMoran-ast/MLOps.git mlops; else cd mlops && git pull; fi\"",
@@ -73,9 +74,10 @@ jobs:
 
                 "sudo bash -lc \"cd /opt/mlflow && docker compose up -d\"",
                 "sudo bash -lc \"cd /opt/mlflow && docker compose ps\"",
-                "sudo bash -lc \"docker logs --tail=120 mlflow || true\""
+                "sudo bash -lc \"curl -sS -I --max-time 5 http://127.0.0.1:5000/ || true\""
               ]
             }'
+
 
 
 

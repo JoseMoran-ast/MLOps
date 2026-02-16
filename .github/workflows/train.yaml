@@ -84,7 +84,7 @@ jobs:
                 "sudo bash -lc \"cd /opt/mlops && python3 -m venv venv\"",
                 "sudo bash -lc \"cd /opt/mlops && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && pip install uvicorn\"",
 
-                "sudo bash -lc \"cat > /etc/systemd/system/mlops-api.service <<'EOF'\n[Unit]\nDescription=MLOps FastAPI Inference API\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=/opt/mlops\nEnvironment=MODEL_PATH=/tmp/ml_artifacts/rf_forward_model.joblib\nExecStart=/opt/mlops/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\nEOF\"",
+                "sudo bash -lc \"cat > /etc/systemd/system/mlops-api.service <<'EOF'\n[Unit]\nDescription=MLOps FastAPI Inference API\nAfter=network.target\n\n[Service]\nType=simple\nWorkingDirectory=/opt/mlops\nEnvironment=MODEL_PATH=/opt/mlops/artifacts/rf_forward_model.joblib\nExecStart=/opt/mlops/venv/bin/uvicorn api_server:app --host 0.0.0.0 --port 8000\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=multi-user.target\nEOF\"",
 
                 "sudo systemctl daemon-reload",
                 "sudo systemctl enable mlops-api.service",
